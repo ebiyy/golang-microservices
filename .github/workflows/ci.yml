@@ -1,0 +1,29 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.22'
+        
+    - name: Build and Test
+      run: |
+        go mod download
+        go test ./...
+        go build ./...
+        
+    - name: Build Docker images
+      run: |
+        docker build -t auth-service:latest ./services/auth-service
+        docker build -t user-service:latest ./services/user-service
