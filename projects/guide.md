@@ -106,8 +106,6 @@ docker-compose --version
 # services/auth-service/Dockerfile
 FROM golang:1.22 as builder
 WORKDIR /app
-COPY go.mod go.sum* ./
-RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o service .
 
@@ -117,8 +115,6 @@ WORKDIR /root/
 COPY --from=builder /app/service .
 CMD ["./service"]
 ```
-
-このDockerfileでは、マルチステージビルドを使用して最終的なイメージサイズを小さくしています。また、依存関係のダウンロードを別ステップにすることで、ビルドキャッシュを効率的に活用できます。
 
 ## 開発環境の選択
 
@@ -373,6 +369,75 @@ go get github.com/gin-gonic/gin
 
 これにより、各サービスが独立して依存関係を管理できるようになります。
 
+### 依存関係の問題解決
+
+依存関係に関する問題が発生した場合は、以下のコマンドを実行して解決できます：
+
+```bash
+# 各サービスディレクトリで依存関係を更新
+cd services/auth-service
+go get github.com/gin-gonic/gin
+go mod tidy
+
+cd ../../services/user-service
+go get github.com/gin-gonic/gin
+go mod tidy
+
+cd ../../services/payment-service
+go get github.com/gin-gonic/gin
+go mod tidy
+```
+
+`go mod tidy` コマンドは、使用されていない依存関係を削除し、必要な依存関係を追加します。これにより、依存関係の問題を解決できます。
+
+### マイクロサービスの起動と動作確認
+
+マイクロサービスを起動して動作確認するには、以下の手順を実行します：
+
+```bash
+# Docker Composeでサービスをビルド
+docker-compose build
+
+# Docker Composeでサービスを起動
+docker-compose up -d
+
+# サービスの状態を確認
+docker-compose ps
+
+# 各サービスのログを確認
+docker-compose logs -f auth-service
+docker-compose logs -f user-service
+docker-compose logs -f payment-service
+```
+
+各サービスは以下のエンドポイントでアクセスできます：
+
+- 認証サービス: http://localhost:8081/health
+- ユーザーサービス: http://localhost:8082/health
+- 決済サービス: http://localhost:8083/health
+
+curlコマンドを使用して動作確認する例：
+
+```bash
+# 認証サービスのヘルスチェック
+curl http://localhost:8081/health
+
+# ユーザーサービスのヘルスチェック
+curl http://localhost:8082/health
+
+# 決済サービスのヘルスチェック
+curl http://localhost:8083/health
+
+# 認証サービスのログイン機能
+curl -X POST http://localhost:8081/auth/login
+
+# ユーザーサービスのユーザー情報取得
+curl http://localhost:8082/users/123
+
+# 決済サービスの決済情報取得
+curl http://localhost:8083/payments/pay123
+```
+
 ### 基本的なGoマイクロサービスの作成
 
 認証サービスの例：
@@ -394,23 +459,13 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status": "ok",
-			"service": "auth-service",
 		})
 	})
 	
 	r.POST("/auth/login", func(c *gin.Context) {
-		// 認証ロジック（実際の実装ではデータベース検証などが必要）
+		// 認証ロジック
 		c.JSON(http.StatusOK, gin.H{
 			"token": "sample-token",
-			"user_id": "user123",
-		})
-	})
-	
-	r.POST("/auth/register", func(c *gin.Context) {
-		// ユーザー登録ロジック
-		c.JSON(http.StatusCreated, gin.H{
-			"message": "ユーザーが登録されました",
-			"user_id": "user123",
 		})
 	})
 	
@@ -427,7 +482,6 @@ go get -u github.com/gin-gonic/gin
 go get -u gorm.io/gorm
 go get -u gorm.io/driver/postgres
 ```
-
 ### Kubernetesマニフェストの作成
 
 ```bash
@@ -562,3 +616,4 @@ helm install prometheus prometheus-community/kube-prometheus-stack
 - [Docker公式ドキュメント](https://docs.docker.com/)
 - [Gin Webフレームワーク](https://github.com/gin-gonic/gin)
 - [GORM](https://gorm.io/)
+
