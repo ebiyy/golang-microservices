@@ -106,6 +106,8 @@ docker-compose --version
 # services/auth-service/Dockerfile
 FROM golang:1.22 as builder
 WORKDIR /app
+COPY go.mod go.sum* ./
+RUN go mod download
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux go build -o service .
 
@@ -115,6 +117,8 @@ WORKDIR /root/
 COPY --from=builder /app/service .
 CMD ["./service"]
 ```
+
+このDockerfileでは、マルチステージビルドを使用して最終的なイメージサイズを小さくしています。また、依存関係のダウンロードを別ステップにすることで、ビルドキャッシュを効率的に活用できます。
 
 ## 開発環境の選択
 
@@ -346,6 +350,29 @@ helm install redis bitnami/redis --set auth.password=password
 
 ## マイクロサービスの構築
 
+### 各サービスのGo Modulesの初期化
+
+各マイクロサービスは独立したGoモジュールとして管理します。各サービスディレクトリで以下のコマンドを実行してください：
+
+```bash
+# 認証サービスのモジュール初期化
+cd services/auth-service
+go mod init github.com/yourusername/golang-microservices/services/auth-service
+go get github.com/gin-gonic/gin
+
+# ユーザーサービスのモジュール初期化
+cd ../../services/user-service
+go mod init github.com/yourusername/golang-microservices/services/user-service
+go get github.com/gin-gonic/gin
+
+# 決済サービスのモジュール初期化
+cd ../../services/payment-service
+go mod init github.com/yourusername/golang-microservices/services/payment-service
+go get github.com/gin-gonic/gin
+```
+
+これにより、各サービスが独立して依存関係を管理できるようになります。
+
 ### 基本的なGoマイクロサービスの作成
 
 認証サービスの例：
@@ -367,13 +394,23 @@ func main() {
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
 			"status": "ok",
+			"service": "auth-service",
 		})
 	})
 	
 	r.POST("/auth/login", func(c *gin.Context) {
-		// 認証ロジック
+		// 認証ロジック（実際の実装ではデータベース検証などが必要）
 		c.JSON(http.StatusOK, gin.H{
 			"token": "sample-token",
+			"user_id": "user123",
+		})
+	})
+	
+	r.POST("/auth/register", func(c *gin.Context) {
+		// ユーザー登録ロジック
+		c.JSON(http.StatusCreated, gin.H{
+			"message": "ユーザーが登録されました",
+			"user_id": "user123",
 		})
 	})
 	
