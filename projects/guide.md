@@ -381,6 +381,107 @@ GUIベースの管理ツールを使用することもできます：
 
 これらのツールを使用すると、コマンドラインを使わずにコンテナの起動、停止、ログの確認などが可能になります。
 
+##### 4. Go Task/Taskの使用
+
+[Task](https://taskfile.dev/)は、Makefileの代替となるタスクランナーで、YAMLベースの設定ファイルを使用します。環境変数の管理やタスクの依存関係の定義が簡単で、より読みやすい構文を提供します。
+
+インストール：
+```bash
+# Homebrewを使用
+brew install go-task/tap/go-task
+
+# または、Go を使用
+go install github.com/go-task/task/v3/cmd/task@latest
+```
+
+`Taskfile.yml`の例：
+```yaml
+version: '3'
+
+# 環境変数の定義
+env:
+  DB_HOST: postgres
+  DB_USER: user
+  DB_PASSWORD: password
+  DB_NAME: microservices
+  REDIS_HOST: redis
+  REDIS_PASSWORD: password
+
+# タスクのデフォルト設定
+vars:
+  DOCKER_COMPOSE: docker-compose
+
+tasks:
+  # デフォルトタスク - ヘルプを表示
+  default:
+    desc: 利用可能なタスクの一覧を表示
+    cmds:
+      - task --list
+
+  # サービスを起動
+  up:
+    desc: すべてのサービスを起動
+    cmds:
+      - "{{.DOCKER_COMPOSE}} up -d"
+
+  # 特定のサービスを起動
+  up:service:
+    desc: 特定のサービスを起動
+    cmds:
+      - "{{.DOCKER_COMPOSE}} up -d {{.SERVICE}}"
+    vars:
+      SERVICE: '{{.CLI_ARGS}}'
+    requires:
+      vars: [SERVICE]
+
+  # サービスを停止
+  down:
+    desc: すべてのサービスを停止
+    cmds:
+      - "{{.DOCKER_COMPOSE}} down"
+
+  # 依存関係を更新
+  deps:
+    desc: 各サービスの依存関係を更新
+    cmds:
+      - task: deps:auth
+      - task: deps:user
+      - task: deps:payment
+
+  # 認証サービスの依存関係を更新
+  deps:auth:
+    desc: 認証サービスの依存関係を更新
+    dir: services/auth-service
+    cmds:
+      - go get github.com/gin-gonic/gin
+      - go mod tidy
+```
+
+使用例：
+```bash
+# タスク一覧を表示
+task --list
+
+# すべてのサービスを起動
+task up
+
+# 特定のサービスを起動
+task up:service auth-service
+
+# 依存関係を更新
+task deps
+
+# 特定のサービスの依存関係を更新
+task deps:auth
+```
+
+Taskの利点：
+- YAMLベースの読みやすい構文
+- 環境変数をトップレベルで管理
+- タスク間の依存関係を簡単に定義
+- ディレクトリを切り替えてコマンドを実行可能
+- 条件付き実行やループなどの高度な機能
+
 #### 開発ワークフロー
 
 1. コードを変更する
