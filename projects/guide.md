@@ -8,7 +8,9 @@
 2. [開発環境のセットアップ](#開発環境のセットアップ)
 3. [Goの基本環境構築](#goの基本環境構築)
 4. [Dockerの設定](#dockerの設定)
-5. [ローカルKubernetes環境](#ローカルkubernetes環境)
+5. [開発環境の選択](#開発環境の選択)
+   - [Docker Compose環境（推奨）](#docker-compose環境推奨)
+   - [ローカルKubernetes環境](#ローカルkubernetes環境)
 6. [データベース環境](#データベース環境)
 7. [マイクロサービスの構築](#マイクロサービスの構築)
 8. [CI/CD環境の構築](#cicd環境の構築)
@@ -33,7 +35,7 @@
 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
 
 # 必要なツールのインストール
-brew install go docker kubectl helm minikube
+brew install go docker docker-compose
 ```
 
 ### VSCodeの設定（推奨エディタ）
@@ -42,7 +44,6 @@ brew install go docker kubectl helm minikube
 2. 以下の拡張機能をインストール:
    - Go (by Go Team at Google)
    - Docker
-   - Kubernetes
    - Remote - Containers
 
 ## Goの基本環境構築
@@ -115,56 +116,70 @@ COPY --from=builder /app/service .
 CMD ["./service"]
 ```
 
-## ローカルKubernetes環境
+## 開発環境の選択
 
-### Minikubeのセットアップ
+マイクロサービス開発には複数の環境オプションがありますが、チーム開発の観点から最も共有しやすい環境を選択することが重要です。
 
-```bash
-# Minikubeのインストール確認
-minikube version
+### Docker Compose環境（推奨）
 
-# Minikubeの起動
-minikube start --cpus=4 --memory=8g
+Docker Composeを使用すると、チーム全体で一貫した開発環境を簡単に共有できます。これは特に初期開発段階で推奨されるアプローチです。
 
-# ステータス確認
-minikube status
-kubectl get nodes
-```
+#### docker-compose.ymlの作成
 
-### Helmのセットアップ
+プロジェクトのルートディレクトリに以下の内容の`docker-compose.yml`ファイルを作成します：
 
-```bash
-# Helmのインストール確認
-helm version
+```yaml
+version: '3.8'
 
-# Helmリポジトリの追加
-helm repo add stable https://charts.helm.sh/stable
-helm repo update
-```
-
-### 開発効率化ツールのインストール
-
-```bash
-# Skaffoldのインストール
-brew install skaffold
-
-# K9sのインストール（Kubernetes UIツール）
-brew install derailed/k9s/k9s
-```
-
-## データベース環境
-
-### PostgreSQLのセットアップ
-
-```bash
-# Kubernetesにデプロイ
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm install postgres bitnami/postgresql --set postgresqlPassword=password
-
-# または、Docker Composeで実行
-cat > docker-compose.yml << EOF
-version: '3'
 services:
+  auth-service:
+    build:
+      context: ./services/auth-service
+    ports:
+      - "8081:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=microservices
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=password
+    depends_on:
+      - postgres
+      - redis
+
+  user-service:
+    build:
+      context: ./services/user-service
+    ports:
+      - "8082:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=microservices
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=password
+    depends_on:
+      - postgres
+      - redis
+
+  payment-service:
+    build:
+      context: ./services/payment-service
+    ports:
+      - "8083:8080"
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=user
+      - DB_PASSWORD=password
+      - DB_NAME=microservices
+      - REDIS_HOST=redis
+      - REDIS_PASSWORD=password
+    depends_on:
+      - postgres
+      - redis
+
   postgres:
     image: postgres:14
     environment:
@@ -175,29 +190,158 @@ services:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
-volumes:
-  postgres-data:
-EOF
 
-docker-compose up -d
-```
-
-### Redisのセットアップ
-
-```bash
-# Kubernetesにデプロイ
-helm install redis bitnami/redis --set auth.password=password
-
-# または、Docker Composeで実行（既存のdocker-compose.ymlに追加）
-cat >> docker-compose.yml << EOF
   redis:
     image: redis:7
     ports:
       - "6379:6379"
     command: redis-server --requirepass password
-EOF
 
+  # 開発用のKafkaとZookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+volumes:
+  postgres-data:
+```
+
+#### 環境の起動と停止
+
+```bash
+# 全サービスを起動
 docker-compose up -d
+
+# 特定のサービスだけを起動
+docker-compose up -d auth-service postgres redis
+
+# ログの確認
+docker-compose logs -f
+
+# 環境の停止
+docker-compose down
+
+# 環境の停止（ボリュームも削除）
+docker-compose down -v
+```
+
+#### 開発ワークフロー
+
+1. コードを変更する
+2. `docker-compose build auth-service`でサービスを再ビルド
+3. `docker-compose up -d auth-service`で更新されたサービスを起動
+4. 必要に応じて`docker-compose restart auth-service`でサービスを再起動
+
+#### 利点
+
+- チーム全員が同じ環境設定を使用できる
+- `.env`ファイルを使って環境変数を管理できる
+- 新しいメンバーが参加しても、`docker-compose up`だけで環境構築が完了
+- Kubernetes環境よりもリソース消費が少ない
+- 設定が単一ファイルにまとまっているため管理が容易
+
+### ローカルKubernetes環境
+
+より本番環境に近い環境が必要な場合や、Kubernetesの機能を活用したい場合は、ローカルKubernetes環境を使用できます。ただし、チーム全体での共有や初期セットアップが複雑になる点に注意が必要です。
+
+#### Minikubeのセットアップ
+
+```bash
+# Minikubeのインストール
+brew install minikube kubectl helm
+
+# Minikubeの起動
+minikube start --cpus=4 --memory=8g
+
+# ステータス確認
+minikube status
+kubectl get nodes
+```
+
+#### Helmのセットアップ
+
+```bash
+# Helmのインストール確認
+helm version
+
+# Helmリポジトリの追加
+helm repo add stable https://charts.helm.sh/stable
+helm repo update
+```
+
+#### 開発効率化ツールのインストール
+
+```bash
+# Skaffoldのインストール
+brew install skaffold
+
+# K9sのインストール（Kubernetes UIツール）
+brew install derailed/k9s/k9s
+```
+
+#### Kubernetesマニフェストの管理
+
+Kubernetes環境を使用する場合は、マニフェストファイルをバージョン管理し、チーム全体で共有することが重要です。以下のような構造を推奨します：
+
+```
+k8s/
+  base/
+    auth-service/
+      deployment.yaml
+      service.yaml
+    user-service/
+      deployment.yaml
+      service.yaml
+  overlays/
+    dev/
+      kustomization.yaml
+    prod/
+      kustomization.yaml
+```
+
+Kustomizeを使用して環境ごとの違いを管理することで、一貫性を保ちながら柔軟な設定が可能になります。
+
+## データベース環境
+
+### PostgreSQLのセットアップ
+
+Docker Compose環境では、`docker-compose.yml`ファイルに既にPostgreSQLの設定が含まれています。
+
+Kubernetes環境を使用する場合：
+
+```bash
+# Kubernetesにデプロイ
+helm repo add bitnami https://charts.bitnami.com/bitnami
+helm install postgres bitnami/postgresql --set postgresqlPassword=password
+```
+
+### Redisのセットアップ
+
+Docker Compose環境では、`docker-compose.yml`ファイルに既にRedisの設定が含まれています。
+
+Kubernetes環境を使用する場合：
+
+```bash
+# Kubernetesにデプロイ
+helm install redis bitnami/redis --set auth.password=password
 ```
 
 ## マイクロサービスの構築
